@@ -1,0 +1,48 @@
+{
+    "SBS-1782766406": [
+        {
+            "trade_id": "Initial investment",
+            "timestamp": "2026-06-29T20:53:27+00:00",
+            "event_type": "setup",
+            "total_invested": 1133.898894426,
+            "details": [
+                {
+                    "coin_name": "ARB",
+                    "amount": 7614.87069,
+                    "buy_price": 0.077,
+                    "initial_investment": 586.34504313
+                },
+                {
+                    "coin_name": "WLD",
+                    "amount": 1281.72718,
+                    "buy_price": 0.4272,
+                    "initial_investment": 547.5538512960001
+                }
+            ]
+        },
+        {
+            "timestamp": "2026-06-29T20:54:04+00:00",
+            "sell": {
+                "direction": "Sell",
+                "coin": "ARB",
+                "time": "2026-06-29 20:54:04",
+                "avg_price": 0.0769,
+                "amount_usdt": 19.370341,
+                "volume_coin": 251.89,
+                "fee": "0.000000",
+                "fee_coin": "USDT"
+            },
+            "buy": {
+                "direction": "Buy",
+                "coin": "WLD",
+                "time": "2026-06-29 20:54:07",
+                "avg_price": 0.4268,
+                "amount_usdt": 19.368184,
+                "volume_coin": 45.38,
+                "fee": "0.000000",
+                "fee_coin": "WLD"
+            },
+            "trade_id": "#Trade 2"
+        }
+    ]
+}

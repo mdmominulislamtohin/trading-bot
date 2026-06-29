@@ -1,0 +1,5 @@
+[2026-06-29 20:53:03] Error: sbs-bot-data.txt not found.
+[2026-06-29 20:54:04] SBS Triggered for Bot: SBS-1782766406. Gap: 38.791191834 >= Target: 30. Raw Trade Amount: 19.395595917
+[2026-06-29 20:54:04] Placed SELL Order: ARB Qty: 251.89 (OrderId: 1455593457104371712)
+[2026-06-29 20:54:07] Placed BUY Order: WLD Amount: 19.370341 USDT (OrderId: 1455593468005367808)
+[2026-06-29 20:54:09] Rebalance Complete for Bot: SBS-1782766406. Saved as #Trade 2. Cycle Count: 1
