@@ -1,73 +1,71 @@
 <?php
 // auth/register.php
-// Simple registration handler that creates a user and auto-generates BSC & Arbitrum wallets.
-
 require_once __DIR__ . '/../src/crypto.php';
 require_once __DIR__ . '/../src/wallet/EvmWallet.php';
+require_once __DIR__ . '/../src/rbac.php';
+session_start();
 
-// Basic POST-based registration. In production, add validation, captcha, email verification.
+$errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-
-    if (!$email || !$password) {
-        $error = 'Email and password are required.';
+    if (!$name || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8) {
+        $errors[] = 'Please provide valid name, email and password (min 8 chars).';
     } else {
-        $dbHost = getenv('DB_HOST') ?: '127.0.0.1';
-        $dbName = getenv('DB_NAME') ?: 'trading';
-        $dbUser = getenv('DB_USER') ?: 'root';
-        $dbPass = getenv('DB_PASS') ?: '';
-        $pdo = new PDO("mysql:host={$dbHost};dbname={$dbName};charset=utf8mb4", $dbUser, $dbPass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-
-        // Check existing
-        $stmt = $pdo->prepare('SELECT id FROM users WHERE email = ?');
-        $stmt->execute([$email]);
-        if ($stmt->fetch()) {
-            $error = 'Email already registered';
+        $pdo = get_pdo();
+        // check exists
+        $st = $pdo->prepare('SELECT id FROM users WHERE email = ? LIMIT 1');
+        $st->execute([$email]);
+        if ($st->fetchColumn()) {
+            $errors[] = 'Email already registered.';
         } else {
-            // Create user
-            $passwordHash = password_hash($password, PASSWORD_DEFAULT);
-            $ins = $pdo->prepare('INSERT INTO users (name, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, NOW())');
-            $ins->execute([$name, $email, $passwordHash, 'user']);
+            $passHash = password_hash($password, PASSWORD_DEFAULT);
+            $ins = $pdo->prepare('INSERT INTO users (name,email,password_hash,role,is_active,created_at) VALUES (?,?,?,?,1,NOW())');
+            $ins->execute([$name, $email, $passHash, 'user']);
             $userId = $pdo->lastInsertId();
 
-            // Auto-generate wallets for chains
+            // auto-create wallets (bsc, arbitrum)
             $chains = ['bsc','arbitrum'];
             foreach ($chains as $chain) {
-                try {
-                    $privHex = EvmWallet::generatePrivateKey();
-                    $info = EvmWallet::createAddressForChain($privHex, $chain);
-                    $address = $info['address'];
-                    // encrypt private key (store binary)
-                    $enc = encrypt_secret(hex2bin($privHex));
-                    $stmt = $pdo->prepare('INSERT INTO wallets (user_id, chain, address, encrypted_privkey, label) VALUES (?, ?, ?, ?, ?)');
-                    $stmt->execute([$userId, $chain, $address, $enc, 'auto']);
-                } catch (Exception $e) {
-                    // If address derivation fails, roll back or notify admin - here we continue but log.
-                    error_log('Wallet generation failed for user '.$userId.' chain '.$chain.': '.$e->getMessage());
-                }
+                $priv = EvmWallet::generatePrivateKey();
+                $address = EvmWallet::privateKeyToAddress($priv);
+                $enc = encrypt_secret($priv);
+                $stmt = $pdo->prepare('INSERT INTO wallets (user_id,chain,address,encrypted_privkey,label,created_at) VALUES (?,?,?,?,?,NOW())');
+                $stmt->execute([$userId, $chain, $address, $enc, 'Primary '.$chain]);
             }
 
-            // Redirect to login or success
-            header('Location: /auth/register_success.php');
-            exit;
+            // generate verification token
+            $token = bin2hex(random_bytes(16));
+            $expires = date('Y-m-d H:i:s', time() + 60*60*24);
+            $upd = $pdo->prepare('UPDATE users SET verification_token = ?, verification_expires_at = ? WHERE id = ?');
+            $upd->execute([$token, $expires, $userId]);
+
+            // assign default role (user)
+            assign_role_to_user((int)$userId, 'user');
+
+            // Auto-assign superadmin if this is the installer-created admin email? handled elsewhere
+
+            // Send verification — simple dev fallback: display token on screen (if SMTP not configured)
+            $_SESSION['just_registered_token'] = $token;
+            header('Location: /auth/register_success.php'); exit;
         }
     }
 }
 
+function get_pdo(){
+    return (new PDO('mysql:host='.getenv('DB_HOST').';dbname='.getenv('DB_NAME').';charset=utf8mb4', getenv('DB_USER'), getenv('DB_PASS')));
+}
+
 ?>
 <!doctype html>
-<html>
-<head><meta charset="utf-8"><title>Register</title></head>
-<body>
+<html><head><meta charset="utf-8"><title>Register</title></head><body>
 <h1>Register</h1>
-<?php if (!empty($error)) echo '<p style="color:red;">'.htmlspecialchars($error).'</p>'; ?>
+<?php foreach($errors as $e) echo '<p style="color:red">'.htmlspecialchars($e).'</p>'; ?>
 <form method="post">
-  <label>Name: <input name="name" required></label><br>
-  <label>Email: <input name="email" type="email" required></label><br>
-  <label>Password: <input name="password" type="password" required></label><br>
+  <label>Name <input type="text" name="name" required></label><br>
+  <label>Email <input type="email" name="email" required></label><br>
+  <label>Password <input type="password" name="password" required></label><br>
   <button type="submit">Register</button>
 </form>
-</body>
-</html>
+</body></html>
