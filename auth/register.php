@@ -1,17 +1,20 @@
 <?php
-// UPDATED: auth/register.php (wired to send verification email using src/mailer.php)
+// UPDATED: auth/register.php -> add CSRF verify and field (wired already to mailer)
 require_once __DIR__ . '/../src/crypto.php';
 require_once __DIR__ . '/../src/wallet/EvmWallet.php';
 require_once __DIR__ . '/../src/rbac.php';
 require_once __DIR__ . '/../src/mailer.php';
+require_once __DIR__ . '/../src/csrf.php';
+require_once __DIR__ . '/../src/validate.php';
 session_start();
 
 $errors = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require_valid_or_die();
     $name = trim($_POST['name'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = $_POST['password'] ?? '';
-    if (!$name || !filter_var($email, FILTER_VALIDATE_EMAIL) || strlen($password) < 8) {
+    if (!v_required($name) || !v_email($email) || !v_min_length($password,8)) {
         $errors[] = 'Please provide valid name, email and password (min 8 chars).';
     } else {
         $pdo = get_pdo();
@@ -71,6 +74,7 @@ function get_pdo(){
 <h1>Register</h1>
 <?php foreach($errors as $e) echo '<p style="color:red">'.htmlspecialchars($e).'</p>'; ?>
 <form method="post">
+  <?php echo csrf_token_field(); ?>
   <label>Name <input type="text" name="name" required></label><br>
   <label>Email <input type="email" name="email" required></label><br>
   <label>Password <input type="password" name="password" required></label><br>

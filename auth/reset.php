@@ -1,12 +1,14 @@
 <?php
-// auth/reset.php
+// UPDATED: auth/reset.php -> add CSRF verify and field
 session_start();
+require_once __DIR__ . '/../src/csrf.php';
 $token = $_GET['token'] ?? $_POST['token'] ?? '';
 $done = false; $err = null;
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require_valid_or_die();
     $password = $_POST['password'] ?? '';
     $token = $_POST['token'] ?? '';
-    if (strlen($password) < 8) { $err = 'Password too short'; }
+    if (!v_min_length($password,8)) { $err = 'Password too short'; }
     else {
         $pdo = get_pdo();
         $st = $pdo->prepare('SELECT id,password_reset_expires_at FROM users WHERE password_reset_token = ? LIMIT 1');
@@ -34,6 +36,7 @@ function get_pdo(){
 <?php else: ?>
   <?php if ($err) echo '<p style="color:red">'.htmlspecialchars($err).'</p>'; ?>
   <form method="post">
+    <?php echo csrf_token_field(); ?>
     <input type="hidden" name="token" value="<?php echo htmlspecialchars($token) ?>">
     <label>New password <input type="password" name="password" required></label>
     <button type="submit">Set password</button>

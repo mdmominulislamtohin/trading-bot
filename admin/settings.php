@@ -1,13 +1,15 @@
 <?php
-// admin/settings.php (extended)
+// UPDATED: admin/settings.php -> CSRF protection
 require_once __DIR__ . '/../src/crypto.php';
 session_start();
 if (!isset($_SESSION['user_id'])) { header('Location: /auth/login.php'); exit; }
 require_once __DIR__ . '/../src/rbac.php';
+require_once __DIR__ . '/../src/csrf.php';
 if (!user_has_permission((int)$_SESSION['user_id'], 'manage_settings')) { http_response_code(403); echo 'Forbidden'; exit; }
 $pdo = get_pdo();
 $messages = [];
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    csrf_require_valid_or_die();
     $site_name = trim($_POST['site_name'] ?? '');
     $contact_email = trim($_POST['contact_email'] ?? '');
     $bullets = trim($_POST['bullets'] ?? '');
@@ -20,6 +22,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $stmt->execute(['contact_email', $encContact]);
     $stmt->execute(['site_bullets', $encBullets]);
     $messages[] = 'Settings saved.';
+}
+function get_pdo(){
+    return (new PDO('mysql:host='.getenv('DB_HOST').';dbname='.getenv('DB_NAME').';charset=utf8mb4', getenv('DB_USER'), getenv('DB_PASS')));
 }
 function get_setting(PDO $pdo, $key) {
     $st = $pdo->prepare('SELECT encrypted_value FROM app_settings WHERE `key` = ? LIMIT 1');
@@ -36,6 +41,7 @@ $bullets = get_setting($pdo, 'site_bullets');
 <h1>Admin Settings</h1>
 <?php foreach ($messages as $m) echo '<p style="color:green">'.htmlspecialchars($m).'</p>'; ?>
 <form method="post">
+  <?php echo csrf_token_field(); ?>
   <label>Site name <input type="text" name="site_name" value="<?php echo htmlspecialchars($site_name ?? '') ?>"></label><br>
   <label>Contact email <input type="text" name="contact_email" value="<?php echo htmlspecialchars($contact_email ?? '') ?>"></label><br>
   <label>Site bullets (one per line)<br><textarea name="bullets" rows="6" cols="60"><?php echo htmlspecialchars($bullets ?? '') ?></textarea></label><br>
