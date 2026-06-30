@@ -1,0 +1,449 @@
+name: Create Monorepo Skeleton
+
+# Manually triggered; run this once after you commit the workflow file to main
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  create-skeleton:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create skeleton branch and files
+        run: |
+          set -e
+          BRANCH="feature/monorepo-skeleton"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # create branch from main
+          git fetch origin main
+          git checkout -b "$BRANCH" || git checkout "$BRANCH"
+
+          # create directories
+          mkdir -p .github/workflows infra services/web/public services/web/src services/api/public services/api/src services/worker/src packages/core/src packages/core/src/Models packages/core/src/Repositories packages/exchanges/src packages/utils/src scripts docs tests/unit migrations
+
+          # Add CI workflow (minimal)
+          cat > .github/workflows/ci.yml <<'YML'
+name: CI
+on:
+  push:
+    branches: [ main, feature/monorepo-skeleton ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+      - name: Validate composer
+        run: |
+          php -v
+          composer --version || true
+      - name: Install dependencies (if any)
+        run: |
+          if [ -f services/api/composer.json ]; then (cd services/api && composer install --no-interaction --no-scripts); fi
+      - name: Run php -v
+        run: php -v
+      - name: Run basic tests (placeholder)
+        run: |
+          echo "No tests configured yet"
+YML
+
+          # infra files
+          cat > infra/Dockerfile.web <<'DOCKWEB'
+# Minimal Dockerfile for web frontend
+FROM php:8.1-fpm
+WORKDIR /var/www/html
+RUN apt-get update && apt-get install -y git unzip libzip-dev libonig-dev zlib1g-dev libxml2-dev
+RUN docker-php-ext-install pdo pdo_mysql mbstring zip xml
+COPY services/web /var/www/html
+DOCKWEB
+
+          cat > infra/Dockerfile.worker <<'DOCKW'
+# Minimal Dockerfile for worker
+FROM php:8.1-cli
+WORKDIR /app
+RUN apt-get update && apt-get install -y git unzip
+COPY services/worker /app
+CMD ["php", "src/Worker.php"]
+DOCKW
+
+          cat > infra/docker-compose.yml <<'DCOMPOSE'
+version: '3.8'
+services:
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: trading
+    ports:
+      - "3306:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+  api:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.web
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+  worker:
+    build:
+      context: .
+      dockerfile: infra/Dockerfile.worker
+    depends_on:
+      - db
+volumes:
+  db_data:
+DCOMPOSE
+
+          # migrations
+          cat > migrations/0001_init.sql <<'SQL'
+-- migrations/0001_init.sql
+-- Initial schema placeholders
+
+CREATE TABLE IF NOT EXISTS users (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  email VARCHAR(255) UNIQUE,
+  password_hash VARCHAR(255),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS wallets (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT NOT NULL,
+  chain VARCHAR(50),
+  address VARCHAR(255),
+  balance DECIMAL(36,18) DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE TABLE IF NOT EXISTS deposits (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  user_id BIGINT,
+  wallet_id BIGINT,
+  tx_hash VARCHAR(255),
+  amount DECIMAL(36,18),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+SQL
+
+          # simple web, api, worker placeholders
+          cat > services/web/public/index.php <<'PHPWEB'
+<?php
+// services/web/public/index.php - placeholder landing
+?><!doctype html>
+<html><head><meta charset="utf-8"><title>Trading Bot - Web</title></head><body>
+<h1>Trading Bot - Web Service (Skeleton)</h1>
+<p>Use services/api for JSON endpoints.</p>
+</body></html>
+PHPWEB
+
+          cat > services/web/src/Controller/StatusController.php <<'PC'
+<?php
+namespace App\Controller;
+
+class StatusController {
+    public function health(): array {
+        return ['status' => 'ok', 'service' => 'web'];
+    }
+}
+PC
+
+          cat > services/web/composer.json <<'JSONWEB'
+{
+  "name": "trading-bot-web",
+  "description": "Web frontend skeleton",
+  "require": {}
+}
+JSONWEB
+
+          cat > services/api/public/index.php <<'APIPUB'
+<?php
+// services/api/public/index.php - minimal API entry
+header('Content-Type: application/json');
+require __DIR__ . '/../src/bootstrap.php';
+
+$path = $_GET['path'] ?? '';
+if ($path === 'health') {
+    echo json_encode(['status'=>'ok','service'=>'api']);
+    exit;
+}
+
+if ($path === 'price') {
+    echo json_encode(['status'=>'success','data'=>[]]);
+    exit;
+}
+
+http_response_code(404);
+echo json_encode(['status'=>'error','message'=>'Not found']);
+APIPUB
+
+          cat > services/api/src/bootstrap.php <<'BOOT'
+<?php
+// services/api/src/bootstrap.php - minimal bootstrap
+ini_set('display_errors', 0);
+// load environment from parent .env or getenv
+// autoload if using composer
+// require __DIR__ . '/../../vendor/autoload.php';
+BOOT
+
+          cat > services/api/composer.json <<'JSONAPI'
+{
+  "name": "trading-bot-api",
+  "description": "API skeleton",
+  "require": {}
+}
+JSONAPI
+
+          cat > services/worker/src/Worker.php <<'WK'
+<?php
+// services/worker/src/Worker.php - simple worker skeleton
+echo "Worker started\n";
+// In real implementation this would run a loop processing queues
+WK
+
+          cat > services/worker/composer.json <<'JSONWK'
+{
+  "name": "trading-bot-worker",
+  "description": "Worker skeleton",
+  "require": {}
+}
+JSONWK
+
+          # packages placeholders
+          mkdir -p packages/core/src/Models packages/core/src/Repositories
+          cat > packages/core/src/Models/README.md <<'R1'
+This folder will contain domain models (User, Wallet, LedgerTransaction).
+Implement repositories in src/Repositories and services in src/Services.
+R1
+
+          cat > packages/core/src/Repositories/README.md <<'R2'
+Repository interfaces and implementations for database access.
+Use PDO or an ORM and inject into services for transactions.
+R2
+
+          cat > packages/core/composer.json <<'PCORE'
+{
+  "name": "packages/core",
+  "description": "Core domain package",
+  "autoload": {
+    "psr-4": { "App\\\\Core\\\\": "src/" }
+  }
+}
+PCORE
+
+          cat > packages/exchanges/src/ExchangeInterface.php <<'EI'
+<?php
+namespace Packages\Exchanges;
+
+interface ExchangeInterface {
+    /**
+     * Get account assets for given credentials.
+     * @param array $credentials
+     * @return array
+     */
+    public function getAccountAssets(array $credentials): array;
+
+    public function fetchTicker(string $symbol): array;
+    public function fetchCandles(string $symbol, string $interval, int $limit): array;
+}
+EI
+
+          cat > packages/exchanges/src/BitgetAdapter.php <<'BIT'
+<?php
+namespace Packages\Exchanges;
+
+class BitgetAdapter implements ExchangeInterface {
+    protected $baseUrl = 'https://api.bitget.com';
+
+    public function __construct() {}
+
+    public function getAccountAssets(array $credentials): array {
+        // Implement Bitget API call and normalize response to internal DTO
+        return [];
+    }
+
+    public function fetchTicker(string $symbol): array {
+        return [];
+    }
+
+    public function fetchCandles(string $symbol, string $interval, int $limit): array {
+        return [];
+    }
+}
+BIT
+
+          cat > packages/exchanges/composer.json <<'PEX'
+{
+  "name": "packages/exchanges",
+  "autoload": { "psr-4": { "Packages\\\\Exchanges\\\\": "src/" } }
+}
+PEX
+
+          cat > packages/utils/src/Bignum.php <<'BN'
+<?php
+namespace Packages\Utils;
+
+class Bignum {
+    public static function toWei(string $amount, int $decimals = 18): string {
+        if (!extension_loaded('bcmath')) throw new \Exception('bcmath required');
+        $a = str_replace(',', '', trim($amount));
+        if ($a === '') return '0';
+        $factor = bcpow('10', (string)$decimals, 0);
+        return bcmul($a, $factor, 0);
+    }
+
+    public static function fromWei(string $wei, int $decimals = 18, int $precision = 18): string {
+        if (!extension_loaded('bcmath')) throw new \Exception('bcmath required');
+        $human = bcdiv($wei, bcpow('10', (string)$decimals, 0), $precision);
+        $human = rtrim($human, '0');
+        $human = rtrim($human, '.');
+        return $human === '' ? '0' : $human;
+    }
+}
+BN
+
+          cat > packages/utils/src/Crypto.php <<'CR'
+<?php
+namespace Packages\Utils;
+
+class Crypto {
+    public static function encrypt(string $plaintext, string $key): string {
+        // Placeholder: implement proper encryption (OpenSSL, libsodium)
+        return base64_encode($plaintext);
+    }
+    public static function decrypt(string $cipher, string $key): string {
+        return base64_decode($cipher);
+    }
+}
+CR
+
+          cat > packages/utils/composer.json <<'PUTIL'
+{
+  "name": "packages/utils",
+  "autoload": { "psr-4": { "Packages\\\\Utils\\\\": "src/" } },
+  "require": {}
+}
+PUTIL
+
+          # scripts and docs
+          cat > scripts/migrate.sh <<'MIG'
+#!/usr/bin/env bash
+set -e
+ROOT=$(dirname "$0")/..
+echo "Running migrations..."
+for f in $(ls $ROOT/migrations/*.sql | sort); do
+  echo "Applying $f"
+  mysql -u "$DB_USER" -p"$DB_PASS" -h "$DB_HOST" "$DB_NAME" < "$f"
+done
+echo "Done."
+MIG
+          chmod +x scripts/migrate.sh
+
+          cat > scripts/backfill_amounts.php <<'BACK'
+<?php
+// scripts/backfill_amounts.php - placeholder; real script lives in packages/core/tools
+echo "Backfill placeholder. Implement backfill in packages/core/tools/backfill_amounts.php\n";
+BACK
+
+          cat > docs/ARCHITECTURE.md <<'ARCH'
+# Architecture Overview
+
+This document describes the high level architecture of the Trading Bot platform:
+
+- services/web: Monolithic web UI (PHP) for browser users (legacy pages).
+- services/api: JSON API for SPA and mobile clients.
+- services/worker: background workers (pollers, processors, reconcilers).
+- packages/exchanges: Exchange adapters (Bitget, Binance, etc.) implementing a common interface.
+- packages/core: Core domain logic (repositories, services, models).
+- packages/utils: Shared utilities (bignum, crypto, env helpers).
+- infra: Docker and deployment artifacts.
+
+Data flow:
+1. Worker poller fetches deposits from exchange adapters, stores raw deposit rows.
+2. Processor consumes deposits and writes ledger_transactions (amount_raw) and updates wallet balances.
+3. API serves user wallets and ledger via secure endpoints.
+ARCH
+
+          cat > docs/RUNBOOK.md <<'RUN'
+# Runbook (short)
+
+1. Development
+   - Copy .env.example to .env and set DB vars.
+   - Run docker-compose up --build (infra/docker-compose.yml)
+
+2. Migrations
+   - scripts/migrate.sh
+
+3. Backfill
+   - scripts/backfill_amounts.php (placeholder)
+
+4. Deploy
+   - Build docker images and push to registry; apply k8s manifests (TBD)
+RUN
+
+          cat > .env.example <<'ENV'
+APP_ENV=development
+DB_HOST=127.0.0.1
+DB_NAME=trading
+DB_USER=root
+DB_PASS=root
+APP_MASTER_KEY=change_this_to_a_strong_key
+ENV
+
+          cat > Makefile <<'MAKE'
+.PHONY: help build up test
+
+help:
+	@echo "Makefile for development tasks"
+
+build:
+	docker-compose -f infra/docker-compose.yml build
+
+up:
+	docker-compose -f infra/docker-compose.yml up --build
+
+test:
+	@echo "Run tests (not configured)"
+MAKE
+
+          cat > README.md <<'README'
+# Trading Bot Monorepo
+
+This branch adds a safe monorepo skeleton for the trading bot platform.
+
+Follow docs/ARCHITECTURE.md and docs/RUNBOOK.md for next steps.
+README
+
+          cat > tests/phpunit.xml <<'PHPUNIT'
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit bootstrap="vendor/autoload.php">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>./tests/unit</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
+PHPUNIT
+
+          # git commit & push
+          git add .
+          git commit -m "chore(monorepo): add monorepo skeleton - services, packages, infra, scripts, docs, CI" || true
+          git push -u origin "$BRANCH"
+
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
