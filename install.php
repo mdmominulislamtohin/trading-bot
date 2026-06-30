@@ -2,7 +2,14 @@
 // install.php
 // Web installer for Trading Bot (Hostinger-friendly). IMPORTANT: Remove this file after successful installation.
 
-session_start();
+// Enable temporary error output for debugging (remove after fixes)
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
 require_once __DIR__ . '/install/helpers.php';
 
 $errors = [];
@@ -76,11 +83,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($run_migrations && $pdo) {
             $migr = run_sql_file($pdo, __DIR__ . '/../migrations/0001_create_users_wallets_and_audit.sql');
             if (!$migr['success']) {
-                $errors[] = 'Migration errors: ' . implode(' | ', $migr['errors']);
+                $errors = array_merge($errors, $migr['errors']);
             } else {
                 // Run app_settings migration too (if not exists)
                 $migr2 = run_sql_file($pdo, __DIR__ . '/../migrations/0002_create_app_settings.sql');
-                if (!$migr2['success']) $errors[] = 'Migration(errors) for app_settings: ' . implode(' | ', $migr2['errors']);
+                if (!$migr2['success']) {
+                    $errors = array_merge($errors, $migr2['errors']);
+                }
             }
         }
 

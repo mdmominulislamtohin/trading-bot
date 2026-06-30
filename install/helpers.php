@@ -1,5 +1,5 @@
 <?php
-// install/helpers.php (updated)
+// install/helpers.php
 // Helper functions for the web installer.
 
 function check_php_extensions(): array {
@@ -34,9 +34,28 @@ function write_env_file(string $path, array $values): bool {
 }
 
 function run_sql_file(PDO $pdo, string $sqlPath): array {
-    $sql = file_get_contents($sqlPath);
-    if ($sql === false) return ['success' => false, 'error' => 'Cannot read SQL file'];
-    // Split by semicolon; naive but works for our migration file
+    // Try several likely locations for the migrations file
+    $candidates = [
+        $sqlPath,
+        __DIR__ . '/../migrations/' . basename($sqlPath),
+        __DIR__ . '/migrations/' . basename($sqlPath),
+        __DIR__ . '/../../migrations/' . basename($sqlPath),
+        __DIR__ . '/..' . '/migrations/' . basename($sqlPath),
+    ];
+
+    $sql = false;
+    foreach ($candidates as $candidate) {
+        if (file_exists($candidate) && is_readable($candidate)) {
+            $sql = file_get_contents($candidate);
+            break;
+        }
+    }
+
+    if ($sql === false) {
+        return ['success' => false, 'errors' => ['Cannot read SQL file at any of: ' . implode(', ', $candidates)]];
+    }
+
+    // Split by semicolon; naive but works for our migration files
     $statements = array_filter(array_map('trim', explode(';', $sql)));
     $errors = [];
     foreach ($statements as $stmt) {
