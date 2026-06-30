@@ -1,6 +1,7 @@
 <?php
-// src/deposit_processor.php
-// Provides functions to process deposits idempotently and update ledger.
+// UPDATED: src/deposit_processor.php (use bignum helpers and amount_raw primarily)
+
+require_once __DIR__ . '/bignum.php';
 
 function get_pdo_conn() {
     static $pdo = null;
@@ -33,45 +34,38 @@ function ledger_exists_for_deposit(PDO $pdo, $depositId) {
 }
 
 function process_single_deposit(PDO $pdo, array $deposit): array {
-    // Returns ['ok'=>bool,'message'=>string]
     try {
-        // determine chain and confirmations
         $chain = $deposit['chain'] ?? ($deposit['chain_name'] ?? '');
         $conf = isset($deposit['confirmations']) ? intval($deposit['confirmations']) : 0;
         $required = required_confirmations_for_chain($chain);
         if ($conf < $required) return ['ok'=>false,'message'=>"Not enough confirmations ({$conf}/{$required})"];
 
-        // find wallet by address (to_address or to)
         $toAddress = $deposit['to_address'] ?? $deposit['address'] ?? $deposit['to'] ?? null;
         if (!$toAddress) return ['ok'=>false,'message'=>'Deposit missing destination address'];
         $wallet = find_wallet_by_address($pdo, $toAddress);
         if (!$wallet) return ['ok'=>false,'message'=>'No wallet found for address '.$toAddress];
 
-        // idempotency check
         if (isset($deposit['id']) && ledger_exists_for_deposit($pdo, $deposit['id'])) {
-            // mark deposit processed to be safe
             $upd = $pdo->prepare('UPDATE deposits SET processed = 1, processed_at = NOW() WHERE id = ?');
             if (isset($deposit['id'])) $upd->execute([$deposit['id']]);
             return ['ok'=>false,'message'=>'Ledger already exists for deposit'];
         }
 
-        // prepare amount
-        // prefer amount_raw field, else amount
+        // Determine amount_raw (wei). Prefer deposit.amount_raw, else convert from amount
         $amountRaw = $deposit['amount_raw'] ?? $deposit['amount_wei'] ?? null;
-        $amount = $deposit['amount'] ?? null; // human-readable
+        $amountHuman = $deposit['amount'] ?? null;
         if ($amountRaw === null) {
-            // try to convert decimal to raw by multiplying with 1e18 if amount present
-            if ($amount !== null) {
-                // naive conversion
-                $amountRaw = bcmul(str_replace(',','',$amount), bcpow('10','18',0));
+            if ($amountHuman !== null && $amountHuman !== '') {
+                $amountRaw = toWei((string)$amountHuman, 18);
             } else {
                 return ['ok'=>false,'message'=>'Deposit amount not found'];
             }
         }
 
-        // Insert ledger and update wallet balance (if wallet.balance exists)
+        // compute human amount for display/storage if needed
+        $amountHumanComputed = fromWei((string)$amountRaw, 18, 18);
+
         $pdo->beginTransaction();
-        // double-check ledger uniqueness
         if (isset($deposit['id']) && ledger_exists_for_deposit($pdo, $deposit['id'])) {
             $pdo->commit();
             return ['ok'=>false,'message'=>'Ledger already exists (after recheck)'];
@@ -79,26 +73,24 @@ function process_single_deposit(PDO $pdo, array $deposit): array {
 
         $ins = $pdo->prepare('INSERT INTO ledger_transactions (user_id,wallet_id,deposit_id,amount_raw,amount,chain,type,metadata,created_at) VALUES (?,?,?,?,?,?,?,?,NOW())');
         $metadata = json_encode(['tx_hash'=>$deposit['tx_hash'] ?? $deposit['txid'] ?? null, 'confirmations'=>$conf]);
-        $ins->execute([$wallet['user_id'],$wallet['id'], $deposit['id'] ?? null, $amountRaw, $amount, $chain, 'deposit', $metadata]);
+        $ins->execute([$wallet['user_id'],$wallet['id'], $deposit['id'] ?? null, $amountRaw, $amountHumanComputed, $chain, 'deposit', $metadata]);
 
-        // attempt to update wallets.balance if column exists
-        $hasBalanceCol = false;
-        $res = $pdo->query("SHOW COLUMNS FROM wallets LIKE 'balance'")->fetchAll();
-        if (count($res)) $hasBalanceCol = true;
-        if ($hasBalanceCol) {
-            // assume balance stored in decimal human format; if amount present use amount else derive
-            if ($amount === null && $amountRaw !== null) {
-                // naive conversion:
-                $amtHuman = bcdiv($amountRaw, bcpow('10','18',0), 18);
-            } else {
-                $amtHuman = $amount;
+        // update wallets.balance_raw if present
+        $hasBalanceRaw = (bool)$pdo->query("SHOW COLUMNS FROM wallets LIKE 'balance_raw'">>0);
+        // simpler check
+        $res = $pdo->query("SHOW COLUMNS FROM wallets LIKE 'balance_raw'")->fetchAll();
+        if (count($res)) {
+            $upd = $pdo->prepare('UPDATE wallets SET balance_raw = COALESCE(balance_raw,0) + ? WHERE id = ?');
+            $upd->execute([$amountRaw, $wallet['id']]);
+            // also update human balance column if exists
+            $res2 = $pdo->query("SHOW COLUMNS FROM wallets LIKE 'balance'")->fetchAll();
+            if (count($res2)) {
+                $human = fromWei($amountRaw, 18, 18);
+                $upd2 = $pdo->prepare('UPDATE wallets SET balance = COALESCE(balance,0) + ? WHERE id = ?');
+                $upd2->execute([$human, $wallet['id']]);
             }
-            // update using expression to avoid race
-            $upd = $pdo->prepare('UPDATE wallets SET balance = COALESCE(balance,0) + ? WHERE id = ?');
-            $upd->execute([$amtHuman, $wallet['id']]);
         }
 
-        // mark deposit processed
         if (isset($deposit['id'])) {
             $upd = $pdo->prepare('UPDATE deposits SET processed = 1, processed_at = NOW(), processed_txid = ? WHERE id = ?');
             $upd->execute([$deposit['tx_hash'] ?? $deposit['txid'] ?? null, $deposit['id']]);
@@ -108,14 +100,13 @@ function process_single_deposit(PDO $pdo, array $deposit): array {
         return ['ok'=>true,'message'=>'Processed deposit for wallet '.$wallet['id']];
     } catch (Exception $ex) {
         if ($pdo->inTransaction()) $pdo->rollBack();
-        return ['ok'=>false,'message'=>'Exception: '.$ex->getMessage()];
+        return ['ok'=>false,'message'=>'Exception: '.$ex->getMessage()} ;
     }
 }
 
 function process_pending_deposits($limit = 50) {
     $pdo = get_pdo_conn();
     $out = [];
-    // select deposits not processed and with confirmations >= required for their chain
     $st = $pdo->prepare('SELECT * FROM deposits WHERE processed = 0 ORDER BY id ASC LIMIT ?');
     $st->bindValue(1, (int)$limit, PDO::PARAM_INT);
     $st->execute();

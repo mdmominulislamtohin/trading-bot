@@ -1,8 +1,9 @@
 <?php
-// admin/deposits.php
+// UPDATED: admin/deposits.php -> display amount using amount_raw when available
 require_once __DIR__ . '/../src/bootstrap.php';
 require_once __DIR__ . '/../src/rbac.php';
 require_once __DIR__ . '/../src/deposit_processor.php';
+require_once __DIR__ . '/../src/bignum.php';
 
 if (empty($_SESSION['user_id'])) { header('Location: /auth/login.php'); exit; }
 if (!user_has_permission((int)$_SESSION['user_id'], 'view_deposits')) { http_response_code(403); echo 'Forbidden'; exit; }
@@ -11,7 +12,6 @@ $pdo = get_pdo();
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && user_has_permission((int)$_SESSION['user_id'], 'process_deposits')) {
     $depositId = intval($_POST['deposit_id'] ?? 0);
     if ($depositId) {
-        // fetch deposit
         $st = $pdo->prepare('SELECT * FROM deposits WHERE id = ? LIMIT 1'); $st->execute([$depositId]); $dep = $st->fetch(PDO::FETCH_ASSOC);
         if ($dep) {
             $res = process_single_deposit($pdo, $dep);
@@ -20,7 +20,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && user_has_permission((int)$_SESSION[
     }
 }
 
-// list deposits
 $rows = $pdo->query('SELECT id,tx_hash,amount,amount_raw,to_address,confirmations,chain,created_at,processed,processed_at FROM deposits ORDER BY id DESC LIMIT 200')->fetchAll(PDO::FETCH_ASSOC);
 require_once __DIR__ . '/../includes/header.php';
 ?>
@@ -34,7 +33,10 @@ require_once __DIR__ . '/../includes/header.php';
       <td><?php echo htmlspecialchars($r['chain']) ?></td>
       <td style="font-family:monospace"><?php echo htmlspecialchars($r['tx_hash']) ?></td>
       <td style="font-family:monospace"><?php echo htmlspecialchars($r['to_address'] ?? '') ?></td>
-      <td><?php echo htmlspecialchars($r['amount'] ?? $r['amount_raw'] ?? '') ?></td>
+      <td><?php
+          if (!empty($r['amount_raw'])) echo htmlspecialchars(fromWei($r['amount_raw'],18,8));
+          else echo htmlspecialchars($r['amount'] ?? $r['amount_raw'] ?? '');
+      ?></td>
       <td><?php echo htmlspecialchars($r['confirmations']) ?></td>
       <td><?php echo $r['processed'] ? ('Yes at '.$r['processed_at']) : 'No' ?></td>
       <td><?php echo htmlspecialchars($r['created_at']) ?></td>
