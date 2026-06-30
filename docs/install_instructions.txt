@@ -1,0 +1,14 @@
+Installation instructions and security notes
+
+Usage:
+1) Upload the full project to your Hostinger account (public_html or chosen web root).
+2) Visit https://yourdomain.tld/install.php in your browser.
+3) Fill DB and API keys and click Install. If the installer cannot write the .env file it will show the contents so you can create the file manually (place it in project root).
+4) After install, delete install.php immediately.
+
+If your host does not support CLI or writing files, the installer will show manual commands to run and the .env contents.
+
+Security:
+- Never commit .env or APP_MASTER_KEY to version control.
+- Remove install.php after finishing installation.
+- Ensure HTTPS is enabled for admin areas.
