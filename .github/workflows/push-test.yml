@@ -1,0 +1,37 @@
+name: Push Test (skeleton push check)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  push-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create or reset branch and add marker file
+        run: |
+          set -euo pipefail
+          BRANCH="feature/monorepo-skeleton"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # create/reset branch from main if possible
+          git fetch origin main || true
+          if git show-ref --verify --quiet refs/remotes/origin/main; then
+            git checkout -B "$BRANCH" origin/main
+          else
+            git checkout -B "$BRANCH"
+          fi
+
+          # create marker file
+          echo "SKELETON PUSH TEST - $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > SKELETON_PUSH_TEST.txt
+          git add SKELETON_PUSH_TEST.txt
+          git commit -m "test(ci): add SKELETON_PUSH_TEST marker" || true
+          git push -u origin "$BRANCH"
