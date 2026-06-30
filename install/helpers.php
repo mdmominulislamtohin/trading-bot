@@ -1,5 +1,5 @@
 <?php
-// install/helpers.php
+// install/helpers.php (updated)
 // Helper functions for the web installer.
 
 function check_php_extensions(): array {
@@ -27,7 +27,7 @@ function write_env_file(string $path, array $values): bool {
         $lines[] = "{$k}={$v}";
     }
     $content = implode("\n", $lines) . "\n";
-    $res = file_put_contents($path, $content);
+    $res = @file_put_contents($path, $content);
     if ($res === false) return false;
     @chmod($path, 0600);
     return true;
