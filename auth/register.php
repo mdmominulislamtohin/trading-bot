@@ -1,8 +1,9 @@
 <?php
-// auth/register.php
+// UPDATED: auth/register.php (wired to send verification email using src/mailer.php)
 require_once __DIR__ . '/../src/crypto.php';
 require_once __DIR__ . '/../src/wallet/EvmWallet.php';
 require_once __DIR__ . '/../src/rbac.php';
+require_once __DIR__ . '/../src/mailer.php';
 session_start();
 
 $errors = [];
@@ -44,10 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // assign default role (user)
             assign_role_to_user((int)$userId, 'user');
 
-            // Auto-assign superadmin if this is the installer-created admin email? handled elsewhere
-
-            // Send verification — simple dev fallback: display token on screen (if SMTP not configured)
-            $_SESSION['just_registered_token'] = $token;
+            // Send verification email if possible
+            $siteName = getenv('SITE_NAME') ?: 'Trading Bot';
+            $verifyLink = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https' : 'http') . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . '/auth/verify.php?token=' . urlencode($token);
+            $tpl = file_get_contents(__DIR__ . '/../templates/email_verification.tpl');
+            $body = str_replace(['{{name}}','{{link}}','{{site_name}}'], [htmlspecialchars($name), $verifyLink, htmlspecialchars($siteName)], $tpl);
+            $sendRes = send_email($email, "Verify your email for {$siteName}", $body, "Verify: {$verifyLink}");
+            if (!$sendRes['success']) {
+                // fallback: show token on success page
+                $_SESSION['just_registered_token'] = $token;
+                $_SESSION['mail_error'] = $sendRes['error'];
+            }
             header('Location: /auth/register_success.php'); exit;
         }
     }

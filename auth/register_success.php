@@ -1,12 +1,16 @@
 <?php
-// auth/register_success.php
+// UPDATED: auth/register_success.php (show mail error if any)
 session_start();
 $token = $_SESSION['just_registered_token'] ?? null;
-unset($_SESSION['just_registered_token']);
+$mailErr = $_SESSION['mail_error'] ?? null;
+unset($_SESSION['just_registered_token']); unset($_SESSION['mail_error']);
 ?>
 <!doctype html>
 <html><head><meta charset="utf-8"><title>Registered</title></head><body>
 <h1>Registration complete</h1>
+<?php if ($mailErr): ?>
+  <p style="color:orange">We tried to send a verification email but it failed: <?php echo htmlspecialchars($mailErr) ?></p>
+<?php endif; ?>
 <?php if ($token): ?>
   <p>Your account was created. Verification token (use this in dev if email not configured):</p>
   <pre><?php echo htmlspecialchars($token) ?></pre>
